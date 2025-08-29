@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simulador de Lixo - Fix scroll-shift</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: linear-gradient(135deg, #a8e6cf 0%, #d3f3e7 50%, #81c784 100%);
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+      touch-action: manipulation;
+      scrollbar-gutter: stable; /* ajuda em browsers modernos */
+    }
+
+    .container { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+
+    .header {
+      background: rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(10px);
+      padding: 20px 0;
+      text-align: center;
+      color: #2d4a36;
+      border-radius: 0 0 25px 25px;
+      margin-bottom: 20px;
+    }
+    .header h1 { font-size: 2rem; font-weight: 700; }
+    .score-item {
+      background: rgba(255, 255, 255, 0.4);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      color: #2d4a36;
+      display: inline-block;
+      margin-top: 10px;
+    }
+
+    .instructions { background: rgba(255,255,255,0.2); padding: 20px; border-radius: 20px; margin-bottom: 25px; text-align:center; color:#2d4a36; }
+    .trash-zone { background: rgba(255,255,255,0.2); padding: 25px; border-radius: 20px; margin-bottom: 25px; }
+    .zone-title { color: #2d4a36; font-size: 1.2rem; font-weight: 600; text-align: center; margin-bottom: 20px; }
+
+    .trash-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 20px;
+      min-height: 220px;   /* fixo mínimo para evitar encolhimentos visíveis */
+      justify-items: center;
+      align-content: start;
+      transition: none;
+    }
+
+    .trash-item {
+      width: 100px;
+      height: 100px;
+      background: #fff;
+      border-radius: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+      touch-action: none;
+      -ms-touch-action: none;
+      will-change: transform;
+      position: relative;
+      z-index: 1;
+    }
+
+    .trash-item .item-icon { font-size: 2.5rem; margin-bottom: 6px; }
+    .trash-item .item-name { font-size: 0.8rem; font-weight: 600; color: #2d4a36; text-align: center; }
+
+    .trash-item.dragging {
+      cursor: grabbing !important;
+      box-shadow: 0 15px 30px rgba(0,0,0,0.18);
+      opacity: 0.98;
+      z-index: 9999;
+      transition: box-shadow 0.05s ease, opacity 0.05s ease;
+    }
+
+    .trash-placeholder {
+      display: block;
+      visibility: hidden;
+      pointer-events: none;
+      border-radius: 15px;
+      margin: 0;
+    }
+
+    .bins-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 20px;
+    }
+
+    .recycling-bin {
+      border-radius: 20px;
+      padding: 25px 15px;
+      text-align: center;
+      color: #fff;
+      border: 3px solid transparent;
+      transition: border-color 0.08s ease, box-shadow 0.08s ease;
+      position: relative;
+      overflow: hidden;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:center;
+      min-height: 120px;
+    }
+
+    .recycling-bin::before {
+      content: '';
+      position: absolute; top:0; left:0; right:0; bottom:0;
+      z-index: -1;
+      opacity: 1;
+    }
+    .recycling-bin.paper { --bin-color: #2980b9; }
+    .recycling-bin.glass { --bin-color: #27ae60; }
+    .recycling-bin.metal { --bin-color: #f1c40f; color: #2d2d2d; }
+    .recycling-bin.plastic { --bin-color: #c0392b; }
+
+    .recycling-bin::before { background: var(--bin-color); }
+
+    .recycling-bin.drop-target {
+      border-color: rgba(255,255,255,0.95);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.12);
+      transform: none;
+    }
+
+    .bin-icon { width:40px; height:40px; margin-bottom:12px; filter: invert(1); }
+    .bin-title { font-size: 1.1rem; font-weight:700; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
+    .bin-subtitle { font-size:0.85rem; opacity:0.9; }
+
+    .footer { text-align:center; padding:30px 20px; color:#2d4a36; font-size:0.9rem; opacity:0.8; }
+
+    #feedback-popup {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      padding: 15px 30px; border-radius: 20px;
+      color: white; font-size: 1.5rem; font-weight: bold;
+      z-index: 10000; opacity: 0; pointer-events: none;
+      transition: all 0.28s cubic-bezier(.2,.9,.2,1);
+    }
+    #feedback-popup.show { opacity: 1; transform: translate(-50%,-80%); }
+    #feedback-popup.correct { background-color: #27ae60; }
+    #feedback-popup.incorrect { background-color: #c0392b; }
+
+    @media (max-width: 768px) {
+      .trash-items { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); min-height: 200px; }
+      .trash-item { width: 90px; height: 90px; }
+      .bins-container { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div id="feedback-popup"></div>
+
+  <div class="header">
+    <div class="container">
+      <h1>🌿 Simulador de Lixo</h1>
+      <div class="score-item">🏆 Pontos: <span id="score">0</span></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="instructions">
+      <h2>Como Separar o Lixo</h2>
+      <p>Arraste cada item para a lixeira correta para ganhar pontos.</p>
+    </div>
+
+    <div class="trash-zone">
+      <h3 class="zone-title">🗑️ Itens para Separar</h3>
+      <div class="trash-items" id="trashItems"></div>
+    </div>
+
+    <div class="bins-container" id="binsContainer">
+      <div class="recycling-bin paper" data-type="paper">
+        <img src="https://api.iconify.design/mdi/file-document-outline.svg" class="bin-icon" alt="Ícone de Papel">
+        <div class="bin-title">PAPEL</div>
+        <div class="bin-subtitle">Jornais, caixas, revistas</div>
+      </div>
+      <div class="recycling-bin glass" data-type="glass">
+        <img src="https://api.iconify.design/mdi/bottle-wine-outline.svg" class="bin-icon" alt="Ícone de Vidro">
+        <div class="bin-title">VIDRO</div>
+        <div class="bin-subtitle">Garrafas, potes, copos</div>
+      </div>
+      <div class="recycling-bin metal" data-type="metal">
+        <img src="https://api.iconify.design/mdi/screw-lag.svg" class="bin-icon" alt="Ícone de Metal">
+        <div class="bin-title">METAL</div>
+        <div class="bin-subtitle">Latas, tampas, arames</div>
+      </div>
+      <div class="recycling-bin plastic" data-type="plastic">
+        <img src="https://api.iconify.design/mdi/cup-water.svg" class="bin-icon" alt="Ícone de Plástico">
+        <div class="bin-title">PLÁSTICO</div>
+        <div class="bin-subtitle">Garrafas, sacolas, potes</div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Desenvolvido por: Everaldo Junior</p>
+  </footer>
+
+  <script>
+    // ===== Dados e Elementos =====
+    const itemsData = {
+      paper: [ { icon: '📰', name: 'Jornal' }, { icon: '📄', name: 'Papel' }, { icon: '📦', name: 'Caixa' }, { icon: '📖', name: 'Revista' }, { icon: '✉️', name: 'Envelope' }, { icon: '🛍️', name: 'Saco de Papel' }, { icon: '🥚', name: 'Caixa de Ovo' } ],
+      glass: [ { icon: '🍾', name: 'Garrafa' }, { icon: '🥛', name: 'Copo' }, { icon: '🫙', name: 'Pote' }, { icon: '💡', name: 'Lâmpada' }, { icon: '🍷', name: 'Taça' }, { icon: '⚗️', name: 'Frasco' } ],
+      metal: [ { icon: '🥫', name: 'Lata' }, { icon: '🔧', name: 'Chave' }, { icon: '📎', name: 'Clipe' }, { icon: '🔩', name: 'Parafuso' }, { icon: '🍴', name: 'Garfo' }, { icon: '🔑', name: 'Chave Quebrada' }, { icon: '🍳', name: 'Panela Velha'} ],
+      plastic: [ { icon: '🧴', name: 'Garrafa PET' }, { icon: '🥤', name: 'Copo Plástico' }, { icon: '🛍️', name: 'Sacola' }, { icon: '🧸', name: 'Brinquedo' }, { icon: '💳', name: 'Cartão' }, { icon: '🍼', name: 'Mamadeira' } ]
+    };
+
+    const trashItemsContainer = document.getElementById('trashItems');
+    const scoreElement = document.getElementById('score');
+    const feedbackPopup = document.getElementById('feedback-popup');
+    const bins = Array.from(document.querySelectorAll('.recycling-bin'));
+
+    let score = 0;
+    function updateScore() { scoreElement.textContent = score; }
+
+    // ===== Drag state =====
+    let draggedItem = null;
+    let dragPointerId = null;
+    let offsetX = 0, offsetY = 0;
+    let draggedW = 0, draggedH = 0;
+    let rafId = null;
+    let placeholder = null;
+
+    // Fallback touch micro-scroll compensation
+    let fallbackInitialScrollY = 0;
+    let fallbackHadFirstMove = false;
+
+    // ===== Helpers: lock/unlock scroll WITHOUT layout shift =====
+    function getScrollbarWidth() {
+      return window.innerWidth - document.documentElement.clientWidth;
+    }
+    function lockScrollWithoutShift() {
+      const scrollbarWidth = getScrollbarWidth();
+      if (scrollbarWidth > 0) {
+        // aplica padding-right para manter o espaço da scrollbar
+        document.body.style.paddingRight = `${scrollbarWidth}px`;
+      }
+      // bloqueia rolagem vertical
+      document.body.style.overflow = 'hidden';
+    }
+    function unlockScrollWithoutShift() {
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
+    }
+
+    // ===== Criação e população de itens =====
+    function createTrashItem(type, itemData) {
+      const item = document.createElement('div');
+      item.className = 'trash-item';
+      item.dataset.type = type;
+      item.innerHTML = `<div class="item-icon">${itemData.icon}</div><div class="item-name">${itemData.name}</div>`;
+
+      if (window.PointerEvent) {
+        item.addEventListener('pointerdown', onPointerDown);
+      } else {
+        item.addEventListener('mousedown', onMouseDown);
+        item.addEventListener('touchstart', onTouchStart, { passive: false });
+      }
+
+      return item;
+    }
+
+    function populateItems() {
+      trashItemsContainer.innerHTML = '';
+      const allItems = [];
+      const itemsPerCategory = 3;
+      for (const category in itemsData) {
+        const shuffled = [...itemsData[category]].sort(() => 0.5 - Math.random());
+        for (let i = 0; i < itemsPerCategory && i < shuffled.length; i++) {
+          allItems.push({ type: category, data: shuffled[i] });
+        }
+      }
+      allItems.sort(() => 0.5 - Math.random()).forEach(item => {
+        trashItemsContainer.appendChild(createTrashItem(item.type, item.data));
+      });
+    }
+
+    // ===== Feedback =====
+    function showFeedback(message, type) {
+      feedbackPopup.textContent = message;
+      feedbackPopup.className = '';
+      feedbackPopup.classList.add(type === 'correct' ? 'correct' : 'incorrect');
+      feedbackPopup.classList.add('show');
+      setTimeout(() => feedbackPopup.classList.remove('show'), 800);
+    }
+
+    // ===== Utilities de drop detection =====
+    function elementUnderPoint(x, y) {
+      if (draggedItem) {
+        const prevVisibility = draggedItem.style.visibility;
+        draggedItem.style.visibility = 'hidden';
+        const el = document.elementFromPoint(x, y);
+        draggedItem.style.visibility = prevVisibility;
+        return el;
+      } else {
+        return document.elementFromPoint(x, y);
+      }
+    }
+
+    function updateDropTarget(x, y) {
+      bins.forEach(b => b.classList.remove('drop-target'));
+      const el = elementUnderPoint(x, y);
+      if (!el) return;
+      const bin = el.closest('.recycling-bin');
+      if (bin) bin.classList.add('drop-target');
+    }
+
+    // ===== Matching & removal =====
+    function checkMatch(bin) {
+      if (!draggedItem) return false;
+      const itemType = draggedItem.dataset.type;
+      const binType = bin.dataset.type;
+      if (itemType === binType) {
+        score++;
+        showFeedback('+1 Ponto!', 'correct');
+        updateScore();
+
+        // animação de remoção (item já é fixed)
+        const temp = draggedItem;
+        temp.style.transition = 'opacity 0.28s ease, transform 0.28s ease';
+        temp.style.opacity = '0';
+        temp.style.transform = 'translate3d(0,0,0) scale(0.45)';
+
+        setTimeout(() => {
+          if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+          if (temp && temp.parentNode) temp.parentNode.removeChild(temp);
+          placeholder = null;
+          draggedItem = null;
+          unlockScrollWithoutShift();
+          if (trashItemsContainer.children.length === 0) populateItems();
+        }, 300);
+        return true;
+      } else {
+        score = Math.max(0, score - 1);
+        showFeedback('-1 Ponto', 'incorrect');
+        updateScore();
+        return false;
+      }
+    }
+
+    // ===== Return animation =====
+    function animateReturnAndCleanup() {
+      if (!draggedItem || !placeholder) {
+        cleanupAfterDragImmediate();
+        return;
+      }
+
+      const phRect = placeholder.getBoundingClientRect();
+      if (rafId) cancelAnimationFrame(rafId);
+      draggedItem.style.transition = 'transform 0.18s cubic-bezier(.2,.8,.2,1), opacity 0.18s ease';
+      // aqui reduzimos a escala para 1 (antes era 1.05) para menor impacto visual
+      draggedItem.style.transform = `translate3d(${phRect.left}px, ${phRect.top}px, 0) scale(1)`;
+
+      setTimeout(() => {
+        // reset completo
+        draggedItem.style.transition = '';
+        draggedItem.style.transform = '';
+        draggedItem.style.position = '';
+        draggedItem.style.left = '';
+        draggedItem.style.top = '';
+        draggedItem.style.width = '';
+        draggedItem.style.height = '';
+        draggedItem.classList.remove('dragging');
+
+        if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+        placeholder = null;
+
+        draggedItem = null;
+        dragPointerId = null;
+        offsetX = offsetY = draggedW = draggedH = 0;
+        bins.forEach(b => b.classList.remove('drop-target'));
+        unlockScrollWithoutShift();
+      }, 200);
+    }
+
+    function cleanupAfterDragImmediate() {
+      if (!draggedItem) return;
+      draggedItem.style.transition = '';
+      draggedItem.style.transform = '';
+      draggedItem.style.position = '';
+      draggedItem.style.left = '';
+      draggedItem.style.top = '';
+      draggedItem.style.width = '';
+      draggedItem.style.height = '';
+      draggedItem.classList.remove('dragging');
+
+      if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+      placeholder = null;
+
+      draggedItem = null;
+      dragPointerId = null;
+      offsetX = offsetY = draggedW = draggedH = 0;
+      bins.forEach(b => b.classList.remove('drop-target'));
+      unlockScrollWithoutShift();
+    }
+
+    // ===== Pointer Events (recomendado) =====
+    function onPointerDown(e) {
+      if (e.button && e.button !== 0) return;
+      e.preventDefault();
+
+      draggedItem = e.currentTarget;
+      dragPointerId = e.pointerId;
+      if (draggedItem.setPointerCapture) {
+        try { draggedItem.setPointerCapture(dragPointerId); } catch (err) {}
+      }
+
+      const rect = draggedItem.getBoundingClientRect();
+      draggedW = rect.width; draggedH = rect.height;
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+
+      // placeholder
+      placeholder = document.createElement('div');
+      placeholder.className = 'trash-placeholder';
+      placeholder.style.width = `${draggedW}px`;
+      placeholder.style.height = `${draggedH}px`;
+      placeholder.style.borderRadius = window.getComputedStyle(draggedItem).borderRadius || '15px';
+      draggedItem.parentNode.insertBefore(placeholder, draggedItem);
+
+      draggedItem.style.width = `${draggedW}px`;
+      draggedItem.style.height = `${draggedH}px`;
+      draggedItem.classList.add('dragging');
+
+      // lock scroll without shift
+      lockScrollWithoutShift();
+
+      draggedItem.style.position = 'fixed';
+      draggedItem.style.left = '0';
+      draggedItem.style.top = '0';
+      // reduzimos a escala levemente para 1.02 — menos "impactante"
+      const initialLeft = e.clientX - offsetX;
+      const initialTop = e.clientY - offsetY;
+      draggedItem.style.transform = `translate3d(${initialLeft}px, ${initialTop}px, 0) scale(1.02)`;
+      draggedItem.style.transition = 'none';
+
+      document.addEventListener('pointermove', onPointerMove);
+      document.addEventListener('pointerup', onPointerUp);
+      document.addEventListener('pointercancel', onPointerUp);
+    }
+
+    function onPointerMove(e) {
+      if (!draggedItem) return;
+      if (e.pointerId !== dragPointerId) return;
+      e.preventDefault();
+
+      const left = e.clientX - offsetX;
+      const top = e.clientY - offsetY;
+
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        draggedItem.style.transform = `translate3d(${left}px, ${top}px, 0) scale(1.02)`;
+      });
+
+      updateDropTarget(e.clientX, e.clientY);
+    }
+
+    function onPointerUp(e) {
+      if (!draggedItem) return;
+      if (dragPointerId && e.pointerId && e.pointerId !== dragPointerId) return;
+      e.preventDefault();
+
+      try { if (draggedItem.releasePointerCapture) draggedItem.releasePointerCapture(dragPointerId); } catch (err) {}
+
+      const clientX = (typeof e.clientX === 'number') ? e.clientX : (window.innerWidth / 2);
+      const clientY = (typeof e.clientY === 'number') ? e.clientY : (window.innerHeight / 2);
+      const el = elementUnderPoint(clientX, clientY);
+      const bin = el ? el.closest('.recycling-bin') : null;
+
+      const matched = bin ? checkMatch(bin) : false;
+      if (!matched) {
+        animateReturnAndCleanup();
+      } else {
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+        document.removeEventListener('pointercancel', onPointerUp);
+      }
+    }
+
+    // ===== Fallback mouse / touch =====
+    function onMouseDown(e) {
+      if (e.button && e.button !== 0) return;
+      e.preventDefault();
+
+      draggedItem = e.currentTarget;
+      dragPointerId = 'mouse';
+
+      const rect = draggedItem.getBoundingClientRect();
+      draggedW = rect.width; draggedH = rect.height;
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+
+      placeholder = document.createElement('div');
+      placeholder.className = 'trash-placeholder';
+      placeholder.style.width = `${draggedW}px`;
+      placeholder.style.height = `${draggedH}px`;
+      placeholder.style.borderRadius = window.getComputedStyle(draggedItem).borderRadius || '15px';
+      draggedItem.parentNode.insertBefore(placeholder, draggedItem);
+
+      draggedItem.style.width = `${draggedW}px`;
+      draggedItem.style.height = `${draggedH}px`;
+      draggedItem.classList.add('dragging');
+
+      lockScrollWithoutShift();
+
+      draggedItem.style.position = 'fixed';
+      draggedItem.style.left = '0';
+      draggedItem.style.top = '0';
+      const initialLeft = e.clientX - offsetX;
+      const initialTop = e.clientY - offsetY;
+      draggedItem.style.transform = `translate3d(${initialLeft}px, ${initialTop}px, 0) scale(1.02)`;
+      draggedItem.style.transition = 'none';
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    }
+
+    function onMouseMove(e) {
+      if (!draggedItem) return;
+      e.preventDefault();
+      const left = e.clientX - offsetX;
+      const top = e.clientY - offsetY;
+
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        draggedItem.style.transform = `translate3d(${left}px, ${top}px, 0) scale(1.02)`;
+      });
+
+      updateDropTarget(e.clientX, e.clientY);
+    }
+
+    function onMouseUp(e) {
+      if (!draggedItem) return;
+      e.preventDefault();
+      const clientX = e.clientX, clientY = e.clientY;
+      const el = elementUnderPoint(clientX, clientY);
+      const bin = el ? el.closest('.recycling-bin') : null;
+
+      const matched = bin ? checkMatch(bin) : false;
+      if (!matched) animateReturnAndCleanup();
+      else {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      }
+    }
+
+    function onTouchStart(e) {
+      if (!e.touches || e.touches.length === 0) return;
+      e.preventDefault();
+
+      draggedItem = e.currentTarget;
+      dragPointerId = 'touch';
+
+      const touch = e.touches[0];
+      const rect = draggedItem.getBoundingClientRect();
+      draggedW = rect.width; draggedH = rect.height;
+      offsetX = touch.clientX - rect.left;
+      offsetY = touch.clientY - rect.top;
+
+      fallbackInitialScrollY = window.scrollY || window.pageYOffset || 0;
+      fallbackHadFirstMove = false;
+
+      placeholder = document.createElement('div');
+      placeholder.className = 'trash-placeholder';
+      placeholder.style.width = `${draggedW}px`;
+      placeholder.style.height = `${draggedH}px`;
+      placeholder.style.borderRadius = window.getComputedStyle(draggedItem).borderRadius || '15px';
+      draggedItem.parentNode.insertBefore(placeholder, draggedItem);
+
+      draggedItem.style.width = `${draggedW}px`;
+      draggedItem.style.height = `${draggedH}px`;
+      draggedItem.classList.add('dragging');
+
+      lockScrollWithoutShift();
+
+      draggedItem.style.position = 'fixed';
+      draggedItem.style.left = '0';
+      draggedItem.style.top = '0';
+      const initialLeft = touch.clientX - offsetX;
+      const initialTop = touch.clientY - offsetY;
+      draggedItem.style.transform = `translate3d(${initialLeft}px, ${initialTop}px, 0) scale(1.02)`;
+      draggedItem.style.transition = 'none';
+
+      document.addEventListener('touchmove', onTouchMove, { passive: false });
+      document.addEventListener('touchend', onTouchEnd);
+      document.addEventListener('touchcancel', onTouchEnd);
+    }
+
+    function onTouchMove(e) {
+      if (!draggedItem) return;
+      if (!e.touches || e.touches.length === 0) return;
+      e.preventDefault();
+
+      const touch = e.touches[0];
+
+      if (!fallbackHadFirstMove) {
+        const rect = draggedItem.getBoundingClientRect();
+        const deltaScroll = (window.scrollY || window.pageYOffset || 0) - fallbackInitialScrollY;
+        offsetY = (touch.clientY - rect.top) - deltaScroll;
+        fallbackHadFirstMove = true;
+      }
+
+      const left = touch.clientX - offsetX;
+      const top = touch.clientY - offsetY;
+
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        draggedItem.style.transform = `translate3d(${left}px, ${top}px, 0) scale(1.02)`;
+      });
+
+      updateDropTarget(touch.clientX, touch.clientY);
+    }
+
+    function onTouchEnd(e) {
+      if (!draggedItem) return;
+      const touches = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
+      const clientX = touches ? touches.clientX : (window.innerWidth/2);
+      const clientY = touches ? touches.clientY : (window.innerHeight/2);
+
+      const el = elementUnderPoint(clientX, clientY);
+      const bin = el ? el.closest('.recycling-bin') : null;
+
+      const matched = bin ? checkMatch(bin) : false;
+      if (!matched) animateReturnAndCleanup();
+      else {
+        document.removeEventListener('touchmove', onTouchMove);
+        document.removeEventListener('touchend', onTouchEnd);
+        document.removeEventListener('touchcancel', onTouchEnd);
+      }
+    }
+
+    // ===== Inicialização =====
+    populateItems();
+    updateScore();
+    window.addEventListener('blur', () => { cleanupAfterDragImmediate(); });
+
+    // Optional: recompute scrollbar compensation on resize/orientationchange
+    window.addEventListener('resize', () => {
+      // if body currently locked, refresh padding to match new scrollbar width
+      if (document.body.style.overflow === 'hidden') {
+        const sb = getScrollbarWidth();
+        document.body.style.paddingRight = sb > 0 ? `${sb}px` : '';
+      }
+    });
+  </script>
+</body>
+</html>
